@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: ocp_solver
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app_frontend.py --server.port 10000
+    envVars:
+      - key: PORT
+        value: 10000
