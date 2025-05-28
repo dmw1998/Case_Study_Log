@@ -251,13 +251,21 @@ def solve_ocp(k_value):
     image_based64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
 
+    v_vals = sol.value(V).tolist()
+    gamma_vals = sol.value(gamma).tolist()
+    alpha_vals = sol.value(alpha).tolist()
+    u_vals = sol.value(u).tolist()
+    J_val = float(sol.value(J))
+
+    del opti
+
     return {
         "x": x_vals,
         "h": h_vals,
-        "V": sol.value(V).tolist(),
-        "gamma": sol.value(gamma).tolist(),
-        "alpha": sol.value(alpha).tolist(),
-        "u": sol.value(u).tolist(),
-        "J": float(sol.value(J)),
+        "V": v_vals,
+        "gamma": gamma_vals,
+        "alpha": alpha_vals,
+        "u": u_vals,
+        "J": J_val,
         "image_base64": image_based64
     }
