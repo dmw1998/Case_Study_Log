@@ -5,6 +5,10 @@ import io
 import base64
 
 def solve_ocp(k_value):
+
+    if k_value <= 0:
+        raise ValueError("Wind strength must be positive.")
+    
     # Time and discretization
     tf = 40        # final time [sec]
     N = 80         # number of control intervals
