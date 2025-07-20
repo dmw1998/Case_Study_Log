@@ -1443,7 +1443,8 @@ def subset_simulation_failure_probability(
     if seed is not None:
         np.random.seed(seed)
     k_samples = np.random.normal(k_mean, k_std, N)
-    s_samples = np.random.normal(s_mean, s_std, N)
+    # s_samples = np.random.normal(s_mean, s_std, N)
+    s_samples = (1.0 / k_samples) ** 2  # Ensure s is derived from k
     args_list = [(u_opt, time_grid, k, s) for k, s in zip(k_samples, s_samples)]
 
     with multiprocessing.Pool(processes=n_proc) as pool:
@@ -1482,7 +1483,8 @@ def subset_simulation_failure_probability(
         for k0, s0 in zip(seeds_k, seeds_s):
             for _ in range(per_seed):
                 k = np.random.normal(k0, k_std*0.6)
-                s = np.random.normal(s0, s_std*0.6)
+                # s = np.random.normal(s0, s_std*0.6)
+                s = (1.0 / k) ** 2  # Ensure s is derived from k
                 new_k_samples.append(k)
                 new_s_samples.append(s)
                 
@@ -1542,20 +1544,6 @@ if __name__ == "__main__":
     
     np.save("res_adpt_u_3.npy", res_adpt_u_3)
     
-    res_double_measure_Bayes = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
-        pce_order=2,
-        k_mean=1.0,
-        k_std=0.08,
-        s_mean=1.0,
-        s_std=0.15,
-        k_obs=1.1,
-        obs_noise=0.05,
-        obs_time=30,
-        du_tol=1e-3,
-        max_iter=3,
-    )
-    np.save("res_double_measure_Bayes.npy", res_double_measure_Bayes)
-    
     res_double_measure = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
         pce_order=2,
         k_mean=1.0,
@@ -1572,131 +1560,176 @@ if __name__ == "__main__":
     
     np.save("res_double_measure.npy", res_double_measure)
     
-    np.random.seed(61)  # For reproducibility
+    res_double_measure_Bayes = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
+        pce_order=2,
+        k_mean=1.0,
+        k_std=0.08,
+        s_mean=1.0,
+        s_std=0.15,
+        k_obs=1.1,
+        obs_noise=0.05,
+        obs_time=30,
+        du_tol=1e-3,
+        max_iter=3,
+    )
+    np.save("res_double_measure_Bayes.npy", res_double_measure_Bayes)
     
-    res_no_adpt = np.load("res_no_adpt.npy", allow_pickle=True).item()
-    res_adpt_u_3 = np.load("res_adpt_u_3.npy", allow_pickle=True).item()
-    res_double_measure_Bayes = np.load("res_double_measure_Bayes.npy", allow_pickle=True).item()
-    res_double_measure = np.load("res_double_measure.npy", allow_pickle=True).item()
+    # np.random.seed(61)  # For reproducibility
     
-    for k in np.linspace(0.9, 1.1, 11):
-        # prob_no_adpt, var_no_adpt, std_no_adpt = fast_failure_probability_parallel(
-        #     res_no_adpt["u"], 
-        #     res_no_adpt["time_grid"], 
-        #     k_mean=k, 
-        #     k_std=0.08, 
-        #     s_mean=1.0, 
-        #     s_std=0.15, 
-        #     N=10000, 
-        #     threshold=1e-6, 
-        #     n_proc=8
-        # )
+    # res_no_adpt = np.load("res_no_adpt.npy", allow_pickle=True).item()
+    # res_adpt_u_3 = np.load("res_adpt_u_3.npy", allow_pickle=True).item()
+    # res_double_measure_Bayes = np.load("res_double_measure_Bayes.npy", allow_pickle=True).item()
+    # res_double_measure = np.load("res_double_measure.npy", allow_pickle=True).item()
+    
+    # k_list = np.linspace(0.9, 1.1, 11)
+    # sus_no_adapt = []
+    # sus_no_adapt_std = []
+    # sus_adapt = []
+    # sus_adapt_std = []
+    # sus_bayes = []
+    # sus_bayes_std = []
+    # sus_no_bayes = []
+    # sus_no_bayes_std = []
+    
+    # for k in k_list:
+    #     results = {
+    #         "no_adpt": [],
+    #         "adpt_u3": [],
+    #         "double_measure_Bayes": [],
+    #         "double_measure": []
+    #     }
+    #     # prob_no_adpt, var_no_adpt, std_no_adpt = fast_failure_probability_parallel(
+    #     #     res_no_adpt["u"], 
+    #     #     res_no_adpt["time_grid"], 
+    #     #     k_mean=k, 
+    #     #     k_std=0.08, 
+    #     #     s_mean=1.0, 
+    #     #     s_std=0.15, 
+    #     #     N=10000, 
+    #     #     threshold=1e-6, 
+    #     #     n_proc=8
+    #     # )
         
-        # prob_u_3, var_u_3, std_u_3 = fast_failure_probability_parallel(
-        #     res_adpt_u_3["u"], 
-        #     res_adpt_u_3["time_grid"], 
-        #     k_mean=k, 
-        #     k_std=0.08, 
-        #     s_mean=1.0, 
-        #     s_std=0.15, 
-        #     N=10000, 
-        #     threshold=1e-6, 
-        #     n_proc=8
-        # )
+    #     # prob_u_3, var_u_3, std_u_3 = fast_failure_probability_parallel(
+    #     #     res_adpt_u_3["u"], 
+    #     #     res_adpt_u_3["time_grid"], 
+    #     #     k_mean=k, 
+    #     #     k_std=0.08, 
+    #     #     s_mean=1.0, 
+    #     #     s_std=0.15, 
+    #     #     N=10000, 
+    #     #     threshold=1e-6, 
+    #     #     n_proc=8
+    #     # )
         
-        # prob_double_measure_Bayes, var_double_measure_Bayes, std_double_measure_Bayes = fast_failure_probability_parallel(
-        #     res_double_measure_Bayes["u"], 
-        #     res_double_measure_Bayes["time_grid"], 
-        #     k_mean=k, 
-        #     k_std=0.08, 
-        #     s_mean=1.0, 
-        #     s_std=0.15, 
-        #     N=10000, 
-        #     threshold=1e-6, 
-        #     n_proc=8
-        # )
+    #     # prob_double_measure_Bayes, var_double_measure_Bayes, std_double_measure_Bayes = fast_failure_probability_parallel(
+    #     #     res_double_measure_Bayes["u"], 
+    #     #     res_double_measure_Bayes["time_grid"], 
+    #     #     k_mean=k, 
+    #     #     k_std=0.08, 
+    #     #     s_mean=1.0, 
+    #     #     s_std=0.15, 
+    #     #     N=10000, 
+    #     #     threshold=1e-6, 
+    #     #     n_proc=8
+    #     # )
         
-        # prob_double_measure, var_double_measure, std_double_measure = fast_failure_probability_parallel(
-        #     res_double_measure["u"], 
-        #     res_double_measure["time_grid"], 
-        #     k_mean=k, 
-        #     k_std=0.08, 
-        #     s_mean=1.0, 
-        #     s_std=0.15, 
-        #     N=10000, 
-        #     threshold=1e-6, 
-        #     n_proc=8
-        # )
+    #     # prob_double_measure, var_double_measure, std_double_measure = fast_failure_probability_parallel(
+    #     #     res_double_measure["u"], 
+    #     #     res_double_measure["time_grid"], 
+    #     #     k_mean=k, 
+    #     #     k_std=0.08, 
+    #     #     s_mean=1.0, 
+    #     #     s_std=0.15, 
+    #     #     N=10000, 
+    #     #     threshold=1e-6, 
+    #     #     n_proc=8
+    #     # )
         
-        sus_prob_no_adpt, cond_thresholds_no_adpt, var_no_adpt_sus, std_no_adpt_sus = subset_simulation_failure_probability(
-            res_no_adpt["u"], 
-            res_no_adpt["time_grid"], 
-            k_mean=k, 
-            k_std=0.08, 
-            s_mean=1.0, 
-            s_std=0.15, 
-            N=1000, 
-            p0=0.1, 
-            threshold=1e-6, 
-            max_level=10, 
-            n_proc=8,
-            verbose=True
-        )
+    #     for _ in range(100):
+    #         sus_prob_no_adpt, cond_thresholds_no_adpt, var_no_adpt_sus, std_no_adpt_sus = subset_simulation_failure_probability(
+    #             res_no_adpt["u"], 
+    #             res_no_adpt["time_grid"], 
+    #             k_mean=k, 
+    #             k_std=0.08, 
+    #             s_mean=1.0, 
+    #             s_std=0.15, 
+    #             N=1000, 
+    #             p0=0.1, 
+    #             threshold=1e-6, 
+    #             max_level=10, 
+    #             n_proc=8,
+    #             verbose=True
+    #         )
+            
+    #         sus_prob_adpt_u_3, cond_thresholds_adpt_u_3, var_adpt_u_3_sus, std_adpt_u_3_sus = subset_simulation_failure_probability(
+    #             res_adpt_u_3["u"], 
+    #             res_adpt_u_3["time_grid"], 
+    #             k_mean=k, 
+    #             k_std=0.08, 
+    #             s_mean=1.0, 
+    #             s_std=0.15, 
+    #             N=1000, 
+    #             p0=0.1, 
+    #             threshold=1e-6, 
+    #             max_level=10, 
+    #             n_proc=8,
+    #             verbose=True
+    #         )
+            
+    #         sus_prob_double_measure_Bayes, cond_thresholds_double_measure_Bayes, var_double_measure_Bayes_sus, std_double_measure_Bayes_sus = subset_simulation_failure_probability(
+    #             res_double_measure_Bayes["u"], 
+    #             res_double_measure_Bayes["time_grid"], 
+    #             k_mean=k, 
+    #             k_std=0.08, 
+    #             s_mean=1.0, 
+    #             s_std=0.15, 
+    #             N=1000, 
+    #             p0=0.1, 
+    #             threshold=1e-6, 
+    #             max_level=10, 
+    #             n_proc=8,
+    #             verbose=True
+    #         )
+            
+    #         sus_prob_double_measure, cond_thresholds_double_measure, var_double_measure_sus, std_double_measure_sus = subset_simulation_failure_probability(
+    #             res_double_measure["u"], 
+    #             res_double_measure["time_grid"], 
+    #             k_mean=k, 
+    #             k_std=0.08, 
+    #             s_mean=1.0, 
+    #             s_std=0.15, 
+    #             N=1000, 
+    #             p0=0.1, 
+    #             threshold=1e-6, 
+    #             max_level=10, 
+    #             n_proc=8,
+    #             verbose=True
+    #         )
+            
+    #         # print(f"\nFor k = {k:.3f}:")
+    #         # print(f"No adaptive mesh failure probability: {prob_no_adpt:.6f}, variance: {var_no_adpt:.8e}, std: {std_no_adpt:.8e}")
+    #         # print(f"Adaptive mesh failure probability: {prob_u_3:.6f}, variance: {var_u_3:.8e}, std: {std_u_3:.8e}")
+    #         # print(f"Double measure (Bayesian) failure probability: {prob_double_measure_Bayes:.6f}, variance: {var_double_measure_Bayes:.8e}, std: {std_double_measure_Bayes:.8e}")
+    #         # print(f"Double measure (no Bayesian) failure probability: {prob_double_measure:.6f}, variance: {var_double_measure:.8e}, std: {std_double_measure:.8e}")
+    #         # print("")
+    #         # print(f"Subset simulation failure probability (no adaptive mesh): {sus_prob_no_adpt:.6f}, variance: {var_no_adpt_sus:.8e}, std: {std_no_adpt_sus:.8e}")
+    #         # print(f"Subset simulation failure probability (adaptive mesh u_3): {sus_prob_adpt_u_3:.6f}, variance: {var_adpt_u_3_sus:.8e}, std: {std_adpt_u_3_sus:.8e}")
+    #         # print(f"Subset simulation failure probability (double measure Bayesian): {sus_prob_double_measure_Bayes:.6f}, variance: {var_double_measure_Bayes_sus:.8e}, std: {std_double_measure_Bayes_sus:.8e}")
+    #         # print(f"Subset simulation failure probability (double measure no Bayesian): {sus_prob_double_measure:.6f}, variance: {var_double_measure_sus:.8e}, std: {std_double_measure_sus:.8e}")
+            
+    #         results["no_adpt"].append(sus_prob_no_adpt)
+    #         results["adpt_u3"].append(sus_prob_adpt_u_3)
+    #         results["double_measure_Bayes"].append(sus_prob_double_measure_Bayes)
+    #         results["double_measure"].append(sus_prob_double_measure)
+            
+    #     sus_no_adapt.append(np.mean(results["no_adpt"]))
+    #     sus_no_adapt_std.append(np.std(results["no_adpt"]))
+    #     sus_adapt.append(np.mean(results["adpt_u3"]))
+    #     sus_adapt_std.append(np.std(results["adpt_u3"]))
+    #     sus_bayes.append(np.mean(results["double_measure_Bayes"]))
+    #     sus_bayes_std.append(np.std(results["double_measure_Bayes"]))
+    #     sus_no_bayes.append(np.mean(results["double_measure"]))
+    #     sus_no_bayes_std.append(np.std(results["double_measure"]))
         
-        sus_prob_adpt_u_3, cond_thresholds_adpt_u_3, var_adpt_u_3_sus, std_adpt_u_3_sus = subset_simulation_failure_probability(
-            res_adpt_u_3["u"], 
-            res_adpt_u_3["time_grid"], 
-            k_mean=k, 
-            k_std=0.08, 
-            s_mean=1.0, 
-            s_std=0.15, 
-            N=1000, 
-            p0=0.1, 
-            threshold=1e-6, 
-            max_level=10, 
-            n_proc=8,
-            verbose=True
-        )
-        
-        sus_prob_double_measure_Bayes, cond_thresholds_double_measure_Bayes, var_double_measure_Bayes_sus, std_double_measure_Bayes_sus = subset_simulation_failure_probability(
-            res_double_measure_Bayes["u"], 
-            res_double_measure_Bayes["time_grid"], 
-            k_mean=k, 
-            k_std=0.08, 
-            s_mean=1.0, 
-            s_std=0.15, 
-            N=1000, 
-            p0=0.1, 
-            threshold=1e-6, 
-            max_level=10, 
-            n_proc=8,
-            verbose=True
-        )
-        
-        sus_prob_double_measure, cond_thresholds_double_measure, var_double_measure_sus, std_double_measure_sus = subset_simulation_failure_probability(
-            res_double_measure["u"], 
-            res_double_measure["time_grid"], 
-            k_mean=k, 
-            k_std=0.08, 
-            s_mean=1.0, 
-            s_std=0.15, 
-            N=1000, 
-            p0=0.1, 
-            threshold=1e-6, 
-            max_level=10, 
-            n_proc=8,
-            verbose=True
-        )
-        
-        print(f"\nFor k = {k:.3f}:")
-        # print(f"No adaptive mesh failure probability: {prob_no_adpt:.6f}, variance: {var_no_adpt:.8e}, std: {std_no_adpt:.8e}")
-        # print(f"Adaptive mesh failure probability: {prob_u_3:.6f}, variance: {var_u_3:.8e}, std: {std_u_3:.8e}")
-        # print(f"Double measure (Bayesian) failure probability: {prob_double_measure_Bayes:.6f}, variance: {var_double_measure_Bayes:.8e}, std: {std_double_measure_Bayes:.8e}")
-        # print(f"Double measure (no Bayesian) failure probability: {prob_double_measure:.6f}, variance: {var_double_measure:.8e}, std: {std_double_measure:.8e}")
-        # print("")
-        print(f"Subset simulation failure probability (no adaptive mesh): {sus_prob_no_adpt:.6f}, variance: {var_no_adpt_sus:.8e}, std: {std_no_adpt_sus:.8e}")
-        print(f"Subset simulation failure probability (adaptive mesh u_3): {sus_prob_adpt_u_3:.6f}, variance: {var_adpt_u_3_sus:.8e}, std: {std_adpt_u_3_sus:.8e}")
-        print(f"Subset simulation failure probability (double measure Bayesian): {sus_prob_double_measure_Bayes:.6f}, variance: {var_double_measure_Bayes_sus:.8e}, std: {std_double_measure_Bayes_sus:.8e}")
-        print(f"Subset simulation failure probability (double measure no Bayesian): {sus_prob_double_measure:.6f}, variance: {var_double_measure_sus:.8e}, std: {std_double_measure_sus:.8e}")
-
     beep()
