@@ -1,6 +1,6 @@
 import numpy as np
 import casadi as ca
-from multiprocessing import Pool
+import multiprocessing
 
 def limit_state_function(args):
     """Define the limit state function G(x). Failure occurs when G(x) <= 0."""
@@ -161,6 +161,7 @@ def limit_state_function(args):
 
 def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
     """Perform subset simulation to estimate failure probability."""
+    # print(f"seed: {seed}")
     np.random.seed(seed)
     num_samples = N
     num_seeds = int(N * p0)  # Number of seeds for failure samples
@@ -170,23 +171,24 @@ def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
 
     G = np.zeros(num_samples)
     for i in range(num_samples):
-        args = (u_opt, time_grid, k[i], s[i])
-        G[i] = limit_state_function(args)
+        G[i] = limit_state_function((u_opt, time_grid, k[i], s[i]))
         
     threshold = np.percentile(G, 100 * p0)
     failure_samples = G <= threshold
-    k = k[failure_samples]
-    G = G[failure_samples]
+    k = k[failure_samples][:num_seeds]
+    G = G[failure_samples][:num_seeds]
     
     while threshold > 0.0:
         l += 1
+        acc = 0
         for i in range(num_samples-num_seeds):
-            k_new = k[i] + np.random.normal(0.0, 0.08)
+            k_new = 0.12 * k[i] + np.sqrt(1 - 0.12 ** 2) * np.random.normal(k_mean, 0.08)
+            # print(f"Iteration {l}, sample {i+1}/{num_samples-num_seeds}, k_new: {k_new}")
             s_new = (1.0 / k_new) ** 2
-            args = (u_opt, time_grid, k_new, s_new)
-            G_new = limit_state_function(args)
+            G_new = limit_state_function((u_opt, time_grid, k_new, s_new))
             
             if G_new <= threshold:
+                acc += 1
                 k = np.append(k, k_new)
                 G = np.append(G, G_new)
             else:
@@ -195,39 +197,116 @@ def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
                 
         threshold = np.percentile(G, 100 * p0)
         if threshold <= 0.0:
+            # print(f"Final threshold reached: {threshold}, iteration: {l}, accepted samples: {acc}")
             return p0 ** (l-1) * np.mean(G <= 0.0)
         else:
-            print(f"Iteration {l}, threshold: {threshold}")
-            G = G[G <= threshold]
-            k = k[G <= threshold]
+            # print(f"Iteration {l}, threshold: {threshold}, len(k): {len(k)}, len(G): {len(G)}")
+            # print(f"accepted: {acc}, threshold: {threshold}, len(k): {len(k)}, len(G): {len(G)}")
+            k = k[G <= threshold][:num_seeds]
+            G = G[G <= threshold][:num_seeds]
     
+def run_subset_simulation(args):
+    """Wrapper function for subset_simulation to use with multiprocessing."""
+    return subset_simulation(*args)
 
 if __name__ == "__main__":
-    np.random.seed(63)
+    np.random.seed(66)
+    
+    # from mc_failure_probability import solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure
+    
+    # res_double_measure_1 = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
+    #     pce_order=2,
+    #     k_mean=1.0,
+    #     k_std=0.08,
+    #     s_mean=1.0,
+    #     s_std=0.15,
+    #     k_obs=0.95,
+    #     obs_noise=0.05,
+    #     obs_time=30,
+    #     du_tol=1e-3,
+    #     max_iter=3,
+    #     Bayesian_update=False,
+    # )
+    
+    # res_double_measure_Bayes_1 = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
+    #     pce_order=2,
+    #     k_mean=1.0,
+    #     k_std=0.08,
+    #     s_mean=1.0,
+    #     s_std=0.15,
+    #     k_obs=0.95,
+    #     obs_noise=0.05,
+    #     obs_time=30,
+    #     du_tol=1e-3,
+    #     max_iter=3,
+    #     Bayesian_update=True,
+    # )
+    
+    # res_double_measure_2 = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
+    #     pce_order=2,
+    #     k_mean=1.0,
+    #     k_std=0.08,
+    #     s_mean=1.0,
+    #     s_std=0.15,
+    #     k_obs=1.05,
+    #     obs_noise=0.05,
+    #     obs_time=30,
+    #     du_tol=1e-3,
+    #     max_iter=3,
+    #     Bayesian_update=False,
+    # )
+    
+    # res_double_measure_Bayes_2 = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
+    #     pce_order=2,
+    #     k_mean=1.0,
+    #     k_std=0.08,
+    #     s_mean=1.0,
+    #     s_std=0.15,
+    #     k_obs=1.05,
+    #     obs_noise=0.05,
+    #     obs_time=30,
+    #     du_tol=1e-3,
+    #     max_iter=3,
+    #     Bayesian_update=True,
+    # )
+
+    # np.save("res_double_measure_1.npy", res_double_measure_1)
+    # np.save("res_double_measure_Bayes_1.npy", res_double_measure_Bayes_1)
+    # np.save("res_double_measure_2.npy", res_double_measure_2)
+    # np.save("res_double_measure_Bayes_2.npy", res_double_measure_Bayes_2)
     
     # Load precomputed results
     res_no_adpt = np.load("res_no_adpt.npy", allow_pickle=True).item()
     res_adpt_u_3 = np.load("res_adpt_u_3.npy", allow_pickle=True).item()
-    res_double_measure_Bayes = np.load("res_double_measure_Bayes.npy", allow_pickle=True).item()
     res_double_measure = np.load("res_double_measure.npy", allow_pickle=True).item()
+    res_double_measure_Bayes = np.load("res_double_measure_Bayes.npy", allow_pickle=True).item()
+    # res_double_measure_1 = np.load("res_double_measure_1.npy", allow_pickle=True).item()
+    # res_double_measure_Bayes_1 = np.load("res_double_measure_Bayes_1.npy", allow_pickle=True).item()
+    # res_double_measure_2 = np.load("res_double_measure_2.npy", allow_pickle=True).item()
+    # res_double_measure_Bayes_2 = np.load("res_double_measure_Bayes_2.npy", allow_pickle=True).item()
     
-    n_runs = 2
+    n_runs = 100
     
-    def run_subset_simulation(args):
-        """Wrapper function for subset_simulation to use with multiprocessing."""
-        return subset_simulation(*args)
-    
-    for k in np.linspace(0.9, 1.1, 11):
+    for k in np.linspace(0.95, 1.05, 6):
         print(f"Running simulations for k_mean = {k}")
+        # pf = run_subset_simulation((100, 0.1, res_double_measure_Bayes['u'], res_double_measure_Bayes['time_grid'], k, 13))
+        # print(f"Probability of failure without adaptation for k_mean = {k}: {pf}")
+        
+        # if k < 1.0:
+        #     res_double_measure = res_double_measure_1
+        #     res_double_measure_Bayes = res_double_measure_Bayes_1
+        # else:
+        #     res_double_measure = res_double_measure_2
+        #     res_double_measure_Bayes = res_double_measure_Bayes_2
         
         # Prepare arguments for parallel execution
-        args_no_adpt = [(1000, 0.1, res_no_adpt['u'], res_no_adpt['time_grid'], k, np.randint(0, 10000)) for _ in range(n_runs)]
-        args_adpt_u_3 = [(1000, 0.1, res_adpt_u_3['u'], res_adpt_u_3['time_grid'], k, np.randint(0, 10000)) for _ in range(n_runs)]
-        args_double_measure = [(1000, 0.1, res_double_measure['u'], res_double_measure['time_grid'], k, np.randint(0, 10000)) for _ in range(n_runs)]
-        args_double_measure_Bayes = [(1000, 0.1, res_double_measure_Bayes['u'], res_double_measure_Bayes['time_grid'], k, np.randint(0, 10000)) for _ in range(n_runs)]
+        args_no_adpt = [(1000, 0.1, res_no_adpt['u'], res_no_adpt['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
+        args_adpt_u_3 = [(1000, 0.1, res_adpt_u_3['u'], res_adpt_u_3['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
+        args_double_measure = [(1000, 0.1, res_double_measure['u'], res_double_measure['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
+        args_double_measure_Bayes = [(1000, 0.1, res_double_measure_Bayes['u'], res_double_measure_Bayes['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
         
         # Use multiprocessing to run simulations in parallel
-        with Pool() as pool:
+        with multiprocessing.Pool(processes=6) as pool:
             prob_no_adpt = pool.map(run_subset_simulation, args_no_adpt)
             prob_adpt_u_3 = pool.map(run_subset_simulation, args_adpt_u_3)
             prob_double_measure = pool.map(run_subset_simulation, args_double_measure)
@@ -238,3 +317,5 @@ if __name__ == "__main__":
         print("Probability of failure with adaptation u_3:", np.mean(prob_adpt_u_3))
         print("Probability of failure with double measure:", np.mean(prob_double_measure))
         print("Probability of failure with double measure Bayesian:", np.mean(prob_double_measure_Bayes))
+    
+    # np.save("prob_double_measure_Bayes.npy", prob_double_measure_Bayes)

@@ -1536,13 +1536,13 @@ def beep():
 
 
 if __name__ == "__main__":
-    res_no_adpt = solve_wider_wind_ocp_pce(tf=50, N=100, pce_order=2, k_mean=1.0, k_std=0.08, s_mean=1.0, s_std=0.15)
+    # res_no_adpt = solve_wider_wind_ocp_pce(tf=50, N=100, pce_order=2, k_mean=1.0, k_std=0.08, s_mean=1.0, s_std=0.15)
     
-    np.save("res_no_adpt.npy", res_no_adpt)
+    # np.save("res_no_adpt.npy", res_no_adpt)
         
-    res_adpt_u_3 = solve_wider_wind_ocp_pce_w_adaptive_mesh(pce_order=2, k_mean=1.0, k_std=0.08, s_mean=1.0, s_std=0.15, max_iter=3, du_tol=1e-3)
+    # res_adpt_u_3 = solve_wider_wind_ocp_pce_w_adaptive_mesh(pce_order=2, k_mean=1.0, k_std=0.08, s_mean=1.0, s_std=0.15, max_iter=3, du_tol=1e-3)
     
-    np.save("res_adpt_u_3.npy", res_adpt_u_3)
+    # np.save("res_adpt_u_3.npy", res_adpt_u_3)
     
     res_double_measure = solve_wider_wind_ocp_pce_w_adaptive_mesh_double_measure(
         pce_order=2,
@@ -1550,7 +1550,7 @@ if __name__ == "__main__":
         k_std=0.08,
         s_mean=1.0,
         s_std=0.15,
-        k_obs=1.1,
+        k_obs=1.05,
         obs_noise=0.05,
         obs_time=30,
         du_tol=1e-3,
@@ -1566,7 +1566,7 @@ if __name__ == "__main__":
         k_std=0.08,
         s_mean=1.0,
         s_std=0.15,
-        k_obs=1.1,
+        k_obs=1.05,
         obs_noise=0.05,
         obs_time=30,
         du_tol=1e-3,
