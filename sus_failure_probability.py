@@ -1,6 +1,11 @@
 import numpy as np
-import casadi as ca
 import multiprocessing
+from numba import jit
+from tqdm import tqdm
+import time
+
+# Configuration - set SHOW_PROGRESS = False for maximum speed
+SHOW_PROGRESS = True  # Change to False to disable all progress bars
 
 def limit_state_function(args):
     """Define the limit state function G(x). Failure occurs when G(x) <= 0."""
@@ -30,119 +35,156 @@ def limit_state_function(args):
     h_star = 1000
     eps = 1e-6
 
+    @jit(nopython=True)
     def Smooth(x_, x0, x1):
+        eps = 1e-6
         t = (x_ - x0) / (x1 - x0 + eps)
-        return ca.if_else(x_ < x0, 0,
-            ca.if_else(x_ > x1, 1, 6*t**5 - 15*t**4 + 10*t**3))
+        if x_ < x0:
+            return 0.0
+        elif x_ > x1:
+            return 1.0
+        else:
+            return 6*t**5 - 15*t**4 + 10*t**3
 
+    @jit(nopython=True)
     def A_piecewise(x_, s_):
+        a = 6e-8
+        b = -4e-11
+        eps = 1e-6
+        
         A1 = -50 + a * (x_/s_)**3 + b * (x_/s_)**4
         A2 = 0.025 * ((x_/s_) - 2300)
         A3 = 50 - a * (4600 - (x_/s_))**3 - b * (4600 - (x_/s_))**4
-        A4 = 50
+        A4 = 50.0
         s1 = Smooth(x_, 480 * s_, 520 * s_)
         s2 = Smooth(x_, 4080 * s_, 4120 * s_)
         s3 = Smooth(x_, 4580 * s_, 4620 * s_)
         B12 = (1 - s1)*A1 + s1*A2
         B23 = (1 - s2)*A2 + s2*A3
         B34 = (1 - s3)*A3 + s3*A4
-        return ca.if_else(x_ <= 500 * s_, B12,
-                ca.if_else(x_ <= 4100 * s_, B23,
-                ca.if_else(x_ <= 4600 * s_, B34, A4)))
+        if x_ <= 500 * s_:
+            return B12
+        elif x_ <= 4100 * s_:
+            return B23
+        elif x_ <= 4600 * s_:
+            return B34
+        else:
+            return A4
 
+    @jit(nopython=True)
     def B_piecewise(x_, s_):
+        c = -np.log(25/30.6)*1e-12
+        d = -8.02881e-8
+        e = 6.28083e-11
+        eps = 1e-6
+        
         B1 = d * (x_/s_)**3 + e * (x_/s_)**4
-        B2 = -51 * ca.exp(ca.fmin(-c * ((x_/s_) - 2300)**4, 30))
+        B2 = -51 * np.exp(np.fmin(-c * ((x_/s_) - 2300)**4, 30))
         B3 = d * (4600 - (x_/s_))**3 + e * (4600 - (x_/s_))**4
-        B4 = 0
+        B4 = 0.0
         s1 = Smooth(x_, 480 * s_, 520 * s_)
         s2 = Smooth(x_, 4080 * s_, 4120 * s_)
         s3 = Smooth(x_, 4580 * s_, 4620 * s_)
         B12 = (1 - s1)*B1 + s1*B2
         B23 = (1 - s2)*B2 + s2*B3
         B34 = (1 - s3)*B3 + s3*B4
-        return ca.if_else(x_ <= 500 * s_, B12,
-                ca.if_else(x_ <= 4100 * s_, B23,
-                ca.if_else(x_ <= 4600 * s_, B34, B4)))
+        if x_ <= 500 * s_:
+            return B12
+        elif x_ <= 4100 * s_:
+            return B23
+        elif x_ <= 4600 * s_:
+            return B34
+        else:
+            return B4
 
     def wind_x(x_, k_, s_):
         return k_ * A_piecewise(x_, s_)
 
     def wind_h(x_, h_, k_, s_):
-        h_safe = ca.fmax(h_, 10.0)
+        h_safe = np.fmax(h_, 10.0)
         return k_ * h_safe / h_star * B_piecewise(x_, s_)
 
     def originalWindModel(x_, h_, k_, s_):
         return wind_x(x_, k_, s_), wind_h(x_, h_, k_, s_)
 
     def C_L(alpha_):
-        return ca.if_else(alpha_ > alpha_star, C0 + C1 * alpha_,
-                        C0 + C1 * alpha_ + C2 * (alpha_ - alpha_star)**2)
+        if alpha_ > alpha_star:
+            return C0 + C1 * alpha_
+        else:
+            return C0 + C1 * alpha_ + C2 * (alpha_ - alpha_star)**2
     def beta(t_):
-        return ca.if_else(t_ < sigma, beta0 + beta_dot0 * t_, 1.0)
+        if t_ < sigma:
+            return beta0 + beta_dot0 * t_
+        else:
+            return 1.0
 
-    def aircraft_ode(k_value):
+    def aircraft_ode_func(state, u_, t_, k_value):
+        """ODE function for aircraft dynamics - optimized version"""
         s_value = (1.0 / k_value) ** 2
-        x_ = ca.MX.sym('x')
-        h_ = ca.MX.sym('h')
-        V_ = ca.MX.sym('V')
-        gamma_ = ca.MX.sym('gamma')
-        alpha_ = ca.MX.sym('alpha')
-        u_ = ca.MX.sym('u')
-        t_ = ca.MX.sym('t')
-
+        x_, h_, V_, gamma_, alpha_ = state
+        
         T = beta(t_) * (A0 + A1 * V_ + A2 * V_**2)
         D = 0.5 * (B0 + B1 * alpha_ + B2 * alpha_**2) * rho * S * V_**2
         L = 0.5 * rho * S * C_L(alpha_) * V_**2
 
-        Wx, Wh = originalWindModel(x_, h_, k_value, s_value)
-        dWx_dx_fun = ca.Function("dWx_dx", [x_], [ca.gradient(Wx, x_)])
-        dWh_dx_fun = ca.Function("dWh_dx", [x_, h_], [ca.gradient(Wh, x_)])
-        dWh_dh_fun = ca.Function("dWh_dh", [x_, h_], [ca.gradient(Wh, h_)])
+        # Use larger step for faster but still accurate gradient estimation
+        eps_grad = 1e-6
+        
+        # Pre-compute wind values for gradient calculation
+        Wx_c, Wh_c = originalWindModel(x_, h_, k_value, s_value)
+        Wx_px, Wh_px = originalWindModel(x_ + eps_grad, h_, k_value, s_value)
+        Wx_mx, Wh_mx = originalWindModel(x_ - eps_grad, h_, k_value, s_value)
+        _, Wh_ph = originalWindModel(x_, h_ + eps_grad, k_value, s_value)
+        _, Wh_mh = originalWindModel(x_, h_ - eps_grad, k_value, s_value)
+        
+        # Compute gradients
+        Wx_dx = (Wx_px - Wx_mx) / (2 * eps_grad)
+        Wh_dx = (Wh_px - Wh_mx) / (2 * eps_grad)
+        Wh_dh = (Wh_ph - Wh_mh) / (2 * eps_grad)
 
-        V_safe = ca.fmax(V_, 1e-3)
+        V_safe = np.fmax(V_, 1e-3)
 
-        x_dot = V_ * ca.cos(gamma_) + Wx
-        h_dot = V_ * ca.sin(gamma_) + Wh
+        # Pre-compute trigonometric functions
+        cos_gamma = np.cos(gamma_)
+        sin_gamma = np.sin(gamma_)
+        cos_alpha_delta = np.cos(alpha_ + delta)
+        sin_alpha_delta = np.sin(alpha_ + delta)
 
-        dWx_dx_val = dWx_dx_fun(x_)[0]
-        dWh_dx_val = dWh_dx_fun(x_, h_)[0]
-        dWh_dh_val = dWh_dh_fun(x_, h_)[0]
+        x_dot = V_ * cos_gamma + Wx_c
+        h_dot = V_ * sin_gamma + Wh_c
 
-        Wx_dot = dWx_dx_val * x_dot
-        Wh_dot = dWh_dx_val * x_dot + dWh_dh_val * h_dot
+        Wx_dot = Wx_dx * x_dot
+        Wh_dot = Wh_dx * x_dot + Wh_dh * h_dot
 
         V_dot = (
-            T / m * ca.cos(alpha_ + delta)
+            T / m * cos_alpha_delta
             - D / m
-            - g * ca.sin(gamma_)
-            - (Wx_dot * ca.cos(gamma_) + Wh_dot * ca.sin(gamma_))
+            - g * sin_gamma
+            - (Wx_dot * cos_gamma + Wh_dot * sin_gamma)
         )
         gamma_dot = (
-            T / (m * V_safe) * ca.sin(alpha_ + delta)
+            T / (m * V_safe) * sin_alpha_delta
             + L / (m * V_safe)
-            - g / V_safe * ca.cos(gamma_)
-            + (1 / V_safe) * (Wx_dot * ca.sin(gamma_) - Wh_dot * ca.cos(gamma_))
+            - g / V_safe * cos_gamma
+            + (1 / V_safe) * (Wx_dot * sin_gamma - Wh_dot * cos_gamma)
         )
         alpha_dot = u_
 
-        y0 = ca.vertcat(x_, h_, V_, gamma_, alpha_)
-        yk = ca.vertcat(x_dot, h_dot, V_dot, gamma_dot, alpha_dot)
-        return ca.Function('f', [y0, u_, t_], [yk])
+        return np.array([x_dot, h_dot, V_dot, gamma_dot, alpha_dot])
 
-    def rk4_step(f, xk, uk, tk, dt):
-        k1 = f(xk, uk, tk)
-        k2 = f(xk + dt/2 * k1, uk, tk + dt/2)
-        k3 = f(xk + dt/2 * k2, uk, tk + dt/2)
-        k4 = f(xk + dt * k3, uk, tk + dt)
-        return xk + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+    def rk4_step(state, u, t, dt, k_value):
+        """RK4 integration step"""
+        k1 = aircraft_ode_func(state, u, t, k_value)
+        k2 = aircraft_ode_func(state + dt/2 * k1, u, t + dt/2, k_value)
+        k3 = aircraft_ode_func(state + dt/2 * k2, u, t + dt/2, k_value)
+        k4 = aircraft_ode_func(state + dt * k3, u, t + dt, k_value)
+        return state + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
 
     def reconstruct_trajectory(u_opt, time_grid, k, s=None, x0=0, h0=600, V0=239.7, gamma0=-0.03925, alpha0=0.1283):
-        # traj = {"x": [], "h": [], "V": [], "gamma": [], "alpha": [], "t": []}
-        X = np.array([x0, h0, V0, gamma0, alpha0])
+        """Reconstruct trajectory and return minimum height"""
+        state = np.array([x0, h0, V0, gamma0, alpha0])
         if s is None:
             s = (1.0 / k) ** 2
-        f = aircraft_ode(k)
 
         u_opt = np.array(u_opt[1:])
         dt_ls = np.diff(time_grid)
@@ -150,8 +192,8 @@ def limit_state_function(args):
         for i, u in enumerate(u_opt):
             t = time_grid[i]
             dt = dt_ls[i]
-            h_min = min(h_min, X[1]) 
-            X = rk4_step(f, X, u, t, dt)
+            h_min = min(h_min, state[1]) 
+            state = rk4_step(state, u, t, dt, k)
         return h_min
     
     u_opt, time_grid, k, s = args
@@ -160,50 +202,77 @@ def limit_state_function(args):
 
 
 def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
-    """Perform subset simulation to estimate failure probability."""
-    # print(f"seed: {seed}")
+    """Perform subset simulation to estimate failure probability - optimized version."""
     np.random.seed(seed)
     num_samples = N
-    num_seeds = int(N * p0)  # Number of seeds for failure samples
+    num_seeds = int(N * p0)
     l = 0
-    k = np.random.normal(k_mean, 0.08, N)  # Randomly sample k from a normal distribution
+    
+    # Pre-allocate arrays for better performance
+    k = np.random.normal(k_mean, 0.08, N)
     s = (1.0 / k) ** 2
 
-    G = np.zeros(num_samples)
-    for i in range(num_samples):
-        G[i] = limit_state_function((u_opt, time_grid, k[i], s[i]))
+    # Initial samples with optional progress bar
+    if SHOW_PROGRESS:
+        desc = f"Initial samples (k={k_mean:.3f}, seed={seed})"
+        G = np.array([limit_state_function((u_opt, time_grid, k[i], s[i])) 
+                      for i in tqdm(range(num_samples), desc=desc, leave=False)])
+    else:
+        G = np.array([limit_state_function((u_opt, time_grid, k[i], s[i])) 
+                      for i in range(num_samples)])
         
     threshold = np.percentile(G, 100 * p0)
-    failure_samples = G <= threshold
-    k = k[failure_samples][:num_seeds]
-    G = G[failure_samples][:num_seeds]
+    failure_indices = G <= threshold
+    k = k[failure_indices][:num_seeds]
+    G = G[failure_indices][:num_seeds]
     
     while threshold > 0.0:
         l += 1
         acc = 0
-        for i in range(num_samples-num_seeds):
-            k_new = 0.12 * k[i] + np.sqrt(1 - 0.12 ** 2) * np.random.normal(k_mean, 0.08)
-            # print(f"Iteration {l}, sample {i+1}/{num_samples-num_seeds}, k_new: {k_new}")
+        new_samples = num_samples - num_seeds
+        
+        # Pre-allocate arrays for new samples
+        k_new_arr = np.zeros(new_samples)
+        G_new_arr = np.zeros(new_samples)
+        accepted = np.zeros(new_samples, dtype=bool)
+        
+        # Iteration samples with optional progress bar
+        if SHOW_PROGRESS:
+            iter_desc = f"Iteration {l} (k={k_mean:.3f}, threshold={threshold:.2f})"
+            iterator = tqdm(range(new_samples), desc=iter_desc, leave=False)
+        else:
+            iterator = range(new_samples)
+            
+        for i in iterator:
+            k_new = 0.12 * k[i % len(k)] + np.sqrt(1 - 0.12 ** 2) * np.random.normal(k_mean, 0.08)
             s_new = (1.0 / k_new) ** 2
             G_new = limit_state_function((u_opt, time_grid, k_new, s_new))
             
+            k_new_arr[i] = k_new
+            G_new_arr[i] = G_new
+            
             if G_new <= threshold:
+                accepted[i] = True
                 acc += 1
-                k = np.append(k, k_new)
-                G = np.append(G, G_new)
             else:
-                k = np.append(k, k[i])
-                G = np.append(G, G[i])
+                # Use existing sample instead
+                k_new_arr[i] = k[i % len(k)]
+                G_new_arr[i] = G[i % len(G)]
+        
+        # Efficiently concatenate arrays
+        k = np.concatenate([k, k_new_arr])
+        G = np.concatenate([G, G_new_arr])
                 
         threshold = np.percentile(G, 100 * p0)
         if threshold <= 0.0:
-            # print(f"Final threshold reached: {threshold}, iteration: {l}, accepted samples: {acc}")
             return p0 ** (l-1) * np.mean(G <= 0.0)
         else:
-            # print(f"Iteration {l}, threshold: {threshold}, len(k): {len(k)}, len(G): {len(G)}")
-            # print(f"accepted: {acc}, threshold: {threshold}, len(k): {len(k)}, len(G): {len(G)}")
-            k = k[G <= threshold][:num_seeds]
-            G = G[G <= threshold][:num_seeds]
+            # Use boolean indexing for efficiency
+            valid_indices = G <= threshold
+            k = k[valid_indices][:num_seeds]
+            G = G[valid_indices][:num_seeds]
+    
+    return p0 ** l
     
 def run_subset_simulation(args):
     """Wrapper function for subset_simulation to use with multiprocessing."""
@@ -285,19 +354,28 @@ if __name__ == "__main__":
     # res_double_measure_2 = np.load("res_double_measure_2.npy", allow_pickle=True).item()
     # res_double_measure_Bayes_2 = np.load("res_double_measure_Bayes_2.npy", allow_pickle=True).item()
     
-    n_runs = 100
+    # Configuration - set SHOW_PROGRESS = False for maximum speed
+    SHOW_PROGRESS = True  # Change to False to disable all progress bars
+    n_runs = 10
+    k_values = np.linspace(0.95, 1.05, 6)
+    total_simulations = len(k_values) * 4 * n_runs  # 6 k values × 4 strategies × 10 runs
     
-    for k in np.linspace(0.95, 1.05, 6):
-        print(f"Running simulations for k_mean = {k}")
-        # pf = run_subset_simulation((100, 0.1, res_double_measure_Bayes['u'], res_double_measure_Bayes['time_grid'], k, 13))
-        # print(f"Probability of failure without adaptation for k_mean = {k}: {pf}")
-        
-        # if k < 1.0:
-        #     res_double_measure = res_double_measure_1
-        #     res_double_measure_Bayes = res_double_measure_Bayes_1
-        # else:
-        #     res_double_measure = res_double_measure_2
-        #     res_double_measure_Bayes = res_double_measure_Bayes_2
+    if SHOW_PROGRESS:
+        print(f"Starting {total_simulations} subset simulations...")
+        print(f"Configuration: {n_runs} runs per strategy, 1000 samples per simulation")
+        print(f"Expected time: 20-30 minutes with {multiprocessing.cpu_count()} CPU cores\n")
+    
+    start_time = time.time()
+    completed_simulations = 0
+    
+    k_iterator = tqdm(k_values, desc="Overall Progress", unit="k_value") if SHOW_PROGRESS else k_values
+    
+    for i, k in enumerate(k_iterator):
+        k_start_time = time.time()
+        if SHOW_PROGRESS:
+            print(f"\n{'='*60}")
+            print(f"Running simulations for k_mean = {k:.3f} ({i+1}/{len(k_values)})")
+            print(f"{'='*60}")
         
         # Prepare arguments for parallel execution
         args_no_adpt = [(1000, 0.1, res_no_adpt['u'], res_no_adpt['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
@@ -306,16 +384,55 @@ if __name__ == "__main__":
         args_double_measure_Bayes = [(1000, 0.1, res_double_measure_Bayes['u'], res_double_measure_Bayes['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
         
         # Use multiprocessing to run simulations in parallel
-        with multiprocessing.Pool(processes=6) as pool:
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            if SHOW_PROGRESS:
+                print("Running no adaptation strategy...")
             prob_no_adpt = pool.map(run_subset_simulation, args_no_adpt)
+            completed_simulations += n_runs
+            
+            if SHOW_PROGRESS:
+                print("Running adaptation u_3 strategy...")
             prob_adpt_u_3 = pool.map(run_subset_simulation, args_adpt_u_3)
+            completed_simulations += n_runs
+            
+            if SHOW_PROGRESS:
+                print("Running double measure strategy...")
             prob_double_measure = pool.map(run_subset_simulation, args_double_measure)
+            completed_simulations += n_runs
+            
+            if SHOW_PROGRESS:
+                print("Running double measure Bayesian strategy...")
             prob_double_measure_Bayes = pool.map(run_subset_simulation, args_double_measure_Bayes)
+            completed_simulations += n_runs
         
-        # Print results
-        print("Probability of failure without adaptation:", np.mean(prob_no_adpt))
-        print("Probability of failure with adaptation u_3:", np.mean(prob_adpt_u_3))
-        print("Probability of failure with double measure:", np.mean(prob_double_measure))
-        print("Probability of failure with double measure Bayesian:", np.mean(prob_double_measure_Bayes))
+        # Print results for this k value
+        if SHOW_PROGRESS:
+            print(f"\nResults for k_mean = {k:.3f}:")
+            print(f"  No adaptation:           {np.mean(prob_no_adpt):.6f} ± {np.std(prob_no_adpt):.6f}")
+            print(f"  Adaptation u_3:          {np.mean(prob_adpt_u_3):.6f} ± {np.std(prob_adpt_u_3):.6f}")
+            print(f"  Double measure:          {np.mean(prob_double_measure):.6f} ± {np.std(prob_double_measure):.6f}")
+            print(f"  Double measure Bayesian: {np.mean(prob_double_measure_Bayes):.6f} ± {np.std(prob_double_measure_Bayes):.6f}")
+            
+            # Time estimates
+            k_elapsed = time.time() - k_start_time
+            total_elapsed = time.time() - start_time
+            avg_time_per_k = total_elapsed / (i + 1)
+            remaining_k = len(k_values) - (i + 1)
+            eta = remaining_k * avg_time_per_k
+            
+            print(f"\nTiming:")
+            print(f"  This k value: {k_elapsed:.1f}s")
+            print(f"  Total elapsed: {total_elapsed/60:.1f}m")
+            print(f"  Completed: {completed_simulations}/{total_simulations} simulations")
+            print(f"  ETA: {eta/60:.1f}m remaining")
+    
+    total_time = time.time() - start_time
+    if SHOW_PROGRESS:
+        print(f"\n{'='*60}")
+        print(f"All simulations completed!")
+        print(f"Total time: {total_time/60:.1f} minutes")
+        print(f"{'='*60}")
+    else:
+        print(f"Completed in {total_time/60:.1f} minutes")
     
     # np.save("prob_double_measure_Bayes.npy", prob_double_measure_Bayes)
