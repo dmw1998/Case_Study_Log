@@ -1,11 +1,9 @@
 import numpy as np
 import multiprocessing
+import os
 from numba import jit
 from tqdm import tqdm
 import time
-
-# Configuration - set SHOW_PROGRESS = False for maximum speed
-SHOW_PROGRESS = True  # Change to False to disable all progress bars
 
 def limit_state_function(args):
     """Define the limit state function G(x). Failure occurs when G(x) <= 0."""
@@ -201,12 +199,16 @@ def limit_state_function(args):
     return h_min
 
 
-def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
+def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed, process_id=None):
     """Perform subset simulation to estimate failure probability - optimized version."""
     np.random.seed(seed)
     num_samples = N
     num_seeds = int(N * p0)
     l = 0
+    
+    # Get process ID for unique progress bar position
+    if process_id is None:
+        process_id = os.getpid() % 100  # Use last 2 digits of process ID
     
     # Pre-allocate arrays for better performance
     k = np.random.normal(k_mean, 0.08, N)
@@ -214,69 +216,60 @@ def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
 
     # Initial samples with optional progress bar
     if SHOW_PROGRESS:
-        desc = f"Initial samples (k={k_mean:.3f}, seed={seed})"
+        desc = f"P{process_id:02d}: Initial (k={k_mean:.3f})"
         G = np.array([limit_state_function((u_opt, time_grid, k[i], s[i])) 
-                      for i in tqdm(range(num_samples), desc=desc, leave=False)])
+                      for i in tqdm(range(num_samples), desc=desc, position=process_id, leave=False)])
     else:
         G = np.array([limit_state_function((u_opt, time_grid, k[i], s[i])) 
                       for i in range(num_samples)])
+    
+    # Free s array as it's no longer needed
+    del s
         
     threshold = np.percentile(G, 100 * p0)
-    failure_indices = G <= threshold
-    k = k[failure_indices][:num_seeds]
-    G = G[failure_indices][:num_seeds]
+    k = k[G <= threshold][:num_seeds]
+    G = G[G <= threshold][:num_seeds]
     
     while threshold > 0.0:
         l += 1
-        acc = 0
         new_samples = num_samples - num_seeds
-        
-        # Pre-allocate arrays for new samples
-        k_new_arr = np.zeros(new_samples)
-        G_new_arr = np.zeros(new_samples)
-        accepted = np.zeros(new_samples, dtype=bool)
         
         # Iteration samples with optional progress bar
         if SHOW_PROGRESS:
-            iter_desc = f"Iteration {l} (k={k_mean:.3f}, threshold={threshold:.2f})"
-            iterator = tqdm(range(new_samples), desc=iter_desc, leave=False)
+            iter_desc = f"P{process_id:02d}: Iter{l} (th={threshold:.1f})"
+            iterator = tqdm(range(new_samples), desc=iter_desc, position=process_id, leave=False)
         else:
             iterator = range(new_samples)
             
         for i in iterator:
-            k_new = 0.12 * k[i % len(k)] + np.sqrt(1 - 0.12 ** 2) * np.random.normal(k_mean, 0.08)
+            k_new = 0.12 * k[i] + np.sqrt(1 - 0.12 ** 2) * np.random.normal(k_mean, 0.08)
             s_new = (1.0 / k_new) ** 2
             G_new = limit_state_function((u_opt, time_grid, k_new, s_new))
             
-            k_new_arr[i] = k_new
-            G_new_arr[i] = G_new
-            
             if G_new <= threshold:
-                accepted[i] = True
-                acc += 1
+                k.append(k_new)
+                G.append(G_new)
             else:
-                # Use existing sample instead
-                k_new_arr[i] = k[i % len(k)]
-                G_new_arr[i] = G[i % len(G)]
-        
-        # Efficiently concatenate arrays
-        k = np.concatenate([k, k_new_arr])
-        G = np.concatenate([G, G_new_arr])
+                k.append(k[i])
+                G.append(G[i])
                 
         threshold = np.percentile(G, 100 * p0)
         if threshold <= 0.0:
             return p0 ** (l-1) * np.mean(G <= 0.0)
         else:
-            # Use boolean indexing for efficiency
-            valid_indices = G <= threshold
-            k = k[valid_indices][:num_seeds]
-            G = G[valid_indices][:num_seeds]
+            k = k[G <= threshold][:num_seeds]
+            G = G[G <= threshold][:num_seeds]
     
     return p0 ** l
     
 def run_subset_simulation(args):
     """Wrapper function for subset_simulation to use with multiprocessing."""
-    return subset_simulation(*args)
+    # Extract arguments (no longer expecting process_id from args)
+    N, p0, u_opt, time_grid, k_mean, seed = args
+    # Use a more reasonable process ID that maps to available CPU cores
+    process_id = os.getpid() % 10  # Map to 0-9 for 10 CPU cores
+    
+    return subset_simulation(N, p0, u_opt, time_grid, k_mean, seed, process_id)
 
 if __name__ == "__main__":
     np.random.seed(66)
@@ -346,9 +339,9 @@ if __name__ == "__main__":
     
     # Load precomputed results
     res_no_adpt = np.load("res_no_adpt.npy", allow_pickle=True).item()
-    res_adpt_u_3 = np.load("res_adpt_u_3.npy", allow_pickle=True).item()
-    res_double_measure = np.load("res_double_measure.npy", allow_pickle=True).item()
-    res_double_measure_Bayes = np.load("res_double_measure_Bayes.npy", allow_pickle=True).item()
+    # res_adpt_u_3 = np.load("res_adpt_u_3.npy", allow_pickle=True).item()
+    # res_double_measure = np.load("res_double_measure.npy", allow_pickle=True).item()
+    # res_double_measure_Bayes = np.load("res_double_measure_Bayes.npy", allow_pickle=True).item()
     # res_double_measure_1 = np.load("res_double_measure_1.npy", allow_pickle=True).item()
     # res_double_measure_Bayes_1 = np.load("res_double_measure_Bayes_1.npy", allow_pickle=True).item()
     # res_double_measure_2 = np.load("res_double_measure_2.npy", allow_pickle=True).item()
@@ -356,14 +349,13 @@ if __name__ == "__main__":
     
     # Configuration - set SHOW_PROGRESS = False for maximum speed
     SHOW_PROGRESS = True  # Change to False to disable all progress bars
-    n_runs = 10
+    n_runs = 100
     k_values = np.linspace(0.95, 1.05, 6)
     total_simulations = len(k_values) * 4 * n_runs  # 6 k values × 4 strategies × 10 runs
     
     if SHOW_PROGRESS:
         print(f"Starting {total_simulations} subset simulations...")
         print(f"Configuration: {n_runs} runs per strategy, 1000 samples per simulation")
-        print(f"Expected time: 20-30 minutes with {multiprocessing.cpu_count()} CPU cores\n")
     
     start_time = time.time()
     completed_simulations = 0
@@ -377,41 +369,57 @@ if __name__ == "__main__":
             print(f"Running simulations for k_mean = {k:.3f} ({i+1}/{len(k_values)})")
             print(f"{'='*60}")
         
-        # Prepare arguments for parallel execution
-        args_no_adpt = [(1000, 0.1, res_no_adpt['u'], res_no_adpt['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
-        args_adpt_u_3 = [(1000, 0.1, res_adpt_u_3['u'], res_adpt_u_3['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
-        args_double_measure = [(1000, 0.1, res_double_measure['u'], res_double_measure['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
-        args_double_measure_Bayes = [(1000, 0.1, res_double_measure_Bayes['u'], res_double_measure_Bayes['time_grid'], k, np.random.randint(0, 100000)) for _ in range(n_runs)]
+        # Prepare arguments for parallel execution with process IDs
+        # Remove process_counter from args since process ID will be assigned dynamically
+        args_no_adpt = []
+        for j in range(n_runs):
+            args_no_adpt.append((1000, 0.1, res_no_adpt['u'], res_no_adpt['time_grid'], k, np.random.randint(0, 100000)))
+            
+        # args_adpt_u_3 = []
+        # for j in range(n_runs):
+        #     args_adpt_u_3.append((1000, 0.1, res_adpt_u_3['u'], res_adpt_u_3['time_grid'], k, np.random.randint(0, 100000)))
+            
+        # args_double_measure = []
+        # for j in range(n_runs):
+        #     args_double_measure.append((1000, 0.1, res_double_measure['u'], res_double_measure['time_grid'], k, np.random.randint(0, 100000)))
+            
+        # args_double_measure_Bayes = []
+        # for j in range(n_runs):
+        #     args_double_measure_Bayes.append((1000, 0.1, res_double_measure_Bayes['u'], res_double_measure_Bayes['time_grid'], k, np.random.randint(0, 100000)))
         
         # Use multiprocessing to run simulations in parallel
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-            if SHOW_PROGRESS:
-                print("Running no adaptation strategy...")
-            prob_no_adpt = pool.map(run_subset_simulation, args_no_adpt)
-            completed_simulations += n_runs
-            
-            if SHOW_PROGRESS:
-                print("Running adaptation u_3 strategy...")
-            prob_adpt_u_3 = pool.map(run_subset_simulation, args_adpt_u_3)
-            completed_simulations += n_runs
-            
-            if SHOW_PROGRESS:
-                print("Running double measure strategy...")
-            prob_double_measure = pool.map(run_subset_simulation, args_double_measure)
-            completed_simulations += n_runs
-            
-            if SHOW_PROGRESS:
-                print("Running double measure Bayesian strategy...")
-            prob_double_measure_Bayes = pool.map(run_subset_simulation, args_double_measure_Bayes)
-            completed_simulations += n_runs
+        # Combine all arguments and run together to avoid progress bar conflicts
+        # all_args = args_no_adpt + args_adpt_u_3 + args_double_measure + args_double_measure_Bayes
+        all_args = args_no_adpt
+        del args_no_adpt  # Clean up memory
+        
+        if SHOW_PROGRESS:
+            print(f"Running {len(all_args)} simulations in parallel on {multiprocessing.cpu_count()} CPU cores...")
+            print("Progress bars P00-P09 show each CPU core's current task")
+            print("-" * 50)
+        
+        # with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        with multiprocessing.Pool(processes=10) as pool:
+            all_results = pool.map(run_subset_simulation, all_args)
+            completed_simulations += len(all_args)
+        
+        # Split results back into categories
+        prob_no_adpt = all_results[:n_runs]
+        # prob_adpt_u_3 = all_results[n_runs:2*n_runs]
+        # prob_double_measure = all_results[2*n_runs:3*n_runs]
+        # prob_double_measure_Bayes = all_results[3*n_runs:4*n_runs]
+        
+        # Clean up memory - let Python handle garbage collection automatically
+        del all_results
+        del all_args
         
         # Print results for this k value
         if SHOW_PROGRESS:
             print(f"\nResults for k_mean = {k:.3f}:")
             print(f"  No adaptation:           {np.mean(prob_no_adpt):.6f} ± {np.std(prob_no_adpt):.6f}")
-            print(f"  Adaptation u_3:          {np.mean(prob_adpt_u_3):.6f} ± {np.std(prob_adpt_u_3):.6f}")
-            print(f"  Double measure:          {np.mean(prob_double_measure):.6f} ± {np.std(prob_double_measure):.6f}")
-            print(f"  Double measure Bayesian: {np.mean(prob_double_measure_Bayes):.6f} ± {np.std(prob_double_measure_Bayes):.6f}")
+            # print(f"  Adaptation u_3:          {np.mean(prob_adpt_u_3):.6f} ± {np.std(prob_adpt_u_3):.6f}")
+            # print(f"  Double measure:          {np.mean(prob_double_measure):.6f} ± {np.std(prob_double_measure):.6f}")
+            # print(f"  Double measure Bayesian: {np.mean(prob_double_measure_Bayes):.6f} ± {np.std(prob_double_measure_Bayes):.6f}")
             
             # Time estimates
             k_elapsed = time.time() - k_start_time
@@ -425,6 +433,9 @@ if __name__ == "__main__":
             print(f"  Total elapsed: {total_elapsed/60:.1f}m")
             print(f"  Completed: {completed_simulations}/{total_simulations} simulations")
             print(f"  ETA: {eta/60:.1f}m remaining")
+        
+        # 在每个k值完成后清理更多内存
+        del prob_no_adpt#, prob_adpt_u_3, prob_double_measure, prob_double_measure_Bayes
     
     total_time = time.time() - start_time
     if SHOW_PROGRESS:
