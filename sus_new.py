@@ -14,7 +14,10 @@ SHOW_PROGRESS = True
 n_runs = 100
 num_samples = 1000
 p0 = 0.1
-k_values = np.linspace(0.95, 1.05, 6)
+# k_values = np.linspace(0.95, 1.05, 6)
+k_values = np.array([1.01, 1.03, 1.05])  # Adjusted for better coverage
+# rhos = [0.12, 0.1, 0.08, 0.07, 0.07, 0.06]
+rhos = [0.06, 0.06, 0.06]  # Adjusted for better coverage
 
 # === STRATEGY CONFIGURATION ===
 res_no_adpt = np.load("res_no_adpt.npy", allow_pickle=True).item()
@@ -157,7 +160,7 @@ def limit_state_function(args):
     return reconstruct_trajectory()
 
 # === SUBSET SIMULATION CORE ===
-def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
+def subset_simulation(N, p0, rho, u_opt, time_grid, k_mean, seed):
     np.random.seed(seed)
     num_seeds = int(N * p0)
     l = 0
@@ -171,22 +174,27 @@ def subset_simulation(N, p0, u_opt, time_grid, k_mean, seed):
     while threshold > 0.0:
         l += 1
         new_samples = N - num_seeds
+        acc = 0
         for i in range(new_samples):
-            k_new = 0.12 * k[i] + np.sqrt(1 - 0.12**2) * np.random.normal(k_mean, 0.08)
+            k_new = rho * k[i] + np.sqrt(1 - rho**2) * np.random.normal(k_mean, 0.08)
             s_new = (1.0 / k_new)**2
             G_new = limit_state_function((u_opt, time_grid, k_new, s_new))
             if G_new <= threshold:
                 k = np.append(k, k_new)
                 G = np.append(G, G_new)
+                acc += 1
             else:
                 k = np.append(k, k[i])
                 G = np.append(G, G[i])
 
         threshold = np.percentile(G, 100 * p0)
+        # if acc / new_samples < 0.2 or acc / new_samples > 0.5:
+        #     print(f"Threshold reached at iteration {l}: {threshold:.6f}, accepted {acc} new samples.")
         if threshold <= 0.0:
             return p0 ** (l-1) * np.mean(G <= 0.0)
         k = k[G <= threshold][:num_seeds]
         G = G[G <= threshold][:num_seeds]
+        rho = rho * (1.5 + 3 * (k_mean - 0.94) + (l-1) * 0.1)
 
     return p0 ** l
 
@@ -195,6 +203,7 @@ def run_subset_simulation(args):
 
 # === MAIN LOOP ===
 if __name__ == "__main__":
+    np.random.seed(44)  # For reproducibility
     start_time = time.time()
     results_by_strategy = {}
 
@@ -206,7 +215,7 @@ if __name__ == "__main__":
         for strategy_name, res in strategy_configs:
             print(f"\nRunning strategy: {strategy_name}")
             args_list = [
-                (num_samples, p0, res['u'], res['time_grid'], k, np.random.randint(0, 100000))
+                (num_samples, p0, rhos[i_k], res['u'], res['time_grid'], k, np.random.randint(0, 100000))
                 for _ in range(n_runs)
             ]
 
@@ -225,4 +234,4 @@ if __name__ == "__main__":
 
     total_time = time.time() - start_time
     print(f"\nAll simulations completed in {total_time / 60:.1f} minutes.")
-    np.save("subset_simulation_results.npy", results_by_strategy)
+    np.save("subset_simulation_results_3.npy", results_by_strategy)
