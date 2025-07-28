@@ -19,11 +19,15 @@ k_values = np.array([1.01, 1.03, 1.05])  # Adjusted for better coverage
 # rhos = [0.12, 0.1, 0.08, 0.07, 0.07, 0.06]
 rhos = [0.06, 0.06, 0.06]  # Adjusted for better coverage
 
+# for 15 test time
+k_values = np.linspace(0.95, 1.05, 6)
+rhos = [0.12, 0.1, 0.08, 0.06, 0.06, 0.06]
+
 # === STRATEGY CONFIGURATION ===
 res_no_adpt = np.load("res_no_adpt.npy", allow_pickle=True).item()
 res_adpt_u_3 = np.load("res_adpt_u_3.npy", allow_pickle=True).item()
-res_double_measure = np.load("res_double_measure.npy", allow_pickle=True).item()
-res_double_measure_Bayes = np.load("res_double_measure_Bayes.npy", allow_pickle=True).item()
+res_double_measure = np.load("res_double_measure15.npy", allow_pickle=True).item()
+res_double_measure_Bayes = np.load("res_double_measure_Bayes15.npy", allow_pickle=True).item()
 
 strategy_configs = [
     ("No adaptation", res_no_adpt),
@@ -234,4 +238,4 @@ if __name__ == "__main__":
 
     total_time = time.time() - start_time
     print(f"\nAll simulations completed in {total_time / 60:.1f} minutes.")
-    np.save("subset_simulation_results_3.npy", results_by_strategy)
+    np.save("subset_simulation_results_15.npy", results_by_strategy)
