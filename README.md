@@ -1,6 +1,8 @@
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![CasADi](https://img.shields.io/badge/CasADi-3.7.0-blue.svg)](https://web.casadi.org/)
-[![Chaospy](https://img.shields.io/badge/Chaospy-library-orange.svg)](https://chaospy.readthedocs.io/)
+[![Chaospy](https://img.shields.io/badge/Chaospy-4.3.20-orange.svg)](https://chaospy.readthedocs.io/)
+[![NumPy](https://img.shields.io/badge/Numpy-2.3.1-orange.svg)](https://numpy.org/)
+[![Matplotlib](https://img.shields.io/badge/Matplotlib-3.10.3-yellow.svg)](https://matplotlib.org/)
 [![Last Commit](https://img.shields.io/github/last-commit/dmw1998/Case_Study_Log)](https://github.com/dmw1998/Case_Study_Log/commits/main)
 
 # Case Study
