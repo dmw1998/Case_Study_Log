@@ -18,12 +18,14 @@ At an early stage of the project, when upstream modeling components were incompl
 ## Key Components
 
 - `All_in_Poster.ipynb` – Summary of modeling progress up to the poster stage.
-- `numerical_experiments.ipynb` – Full experiment notebook. \n
+- `numerical_experiments.ipynb` – Full experiment notebook.
+  
   **Note**: The following parts were developed by Jakob Dilen ([MrGoomb0](https://github.com/MrGoomb0)):  
-  – the multiple plans model,  
-  – Method 2.1: embedded error estimation with a posteriori mesh halving, and  
-  – Method 2.2: embedded error estimation using Runge-Kutta pairs.  
+    – the multiple plans model,  
+    – Method 2.1: embedded error estimation with a posteriori mesh halving, and  
+    – Method 2.2: embedded error estimation using Runge-Kutta pairs.  
   The rest of the modeling, simulation, and result framework in this notebook was developed by Miaowen Dong.
+  
 - `mc_failure_probability.py` – Monte Carlo experiments with three solvers (later replaced).
 - `sus_new.py` – Subset simulation for failure probability estimation.
 - `visualization.py` – Visualization scripts for subset simulation results.
