@@ -18,7 +18,7 @@ At an early stage of the project, when upstream modeling components were incompl
 ## Key Components
 
 - `All_in_Poster.ipynb` – Summary of modeling progress up to the poster stage.
-- `numerical_experiments.ipynb` – Full experiment notebook.
+- `numerical_experiments.ipynb` – Full experiment notebook. \n
   **Note**: The following parts were developed by Jakob Dilen ([MrGoomb0](https://github.com/MrGoomb0)):  
   – the multiple plans model,  
   – Method 2.1: embedded error estimation with a posteriori mesh halving, and  
