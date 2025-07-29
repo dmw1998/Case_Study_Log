@@ -4,7 +4,7 @@ This project is part of the TUM Case Study Seminar S3, focusing on optimal contr
 
 This repository contains the **initial complete and executable model** independently developed by **Miaowen Dong** during a collaborative group project. It served as the **first working version** and provided the foundation for further development, including model extensions and interface migration carried out by other team members.
 
-## 🔍 Overview
+## Overview
 
 At an early stage of the project, when upstream modeling components were incomplete or non-functional, this repository was created to ensure continued progress. The model includes a structured and parameterized system, which was later extended to support more complex scenarios (e.g., multiple plans model by Jakob Dilen [MrGoomb0](https://github.com/MrGoomb0) and uncertain wind with one or two stochastic variables by myself). Two failure probability estimation methods (Monte Carlo and subset simulation) were also developed and evaluated within this framework.
 
